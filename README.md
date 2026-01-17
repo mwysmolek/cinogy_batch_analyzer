@@ -1,27 +1,70 @@
-#Beam M² / BPP Analysis Tool
+# Beam M² / BPP Analyzer
 
-A fast, cross-platform Python application for beam quality analysis (M², BPP, caustics) based on standard M² measurement files, with optional image-based verification.
+A small, vendor-agnostic tool to parse `.m2` text exports and compute beam quality metrics:
 
-Designed for large batch processing and component characterization, the tool prioritizes metadata-first workflows (no image I/O unless explicitly requested), making it suitable for production environments and large datasets.
+- per-frame beam widths (camera X/Y + principal axes)
+- caustic fitting (ISO-11146 style) to get waist, divergence, BPP and M²
+- GUI (PyQt5 or PyQt6) + CLI batch mode
 
-Key features
+## Install
 
-Batch and single-file M² analysis
+Pick **one** Qt binding:
 
-Recursive batch processing with component grouping
+### Option A: PyQt6
 
-Moment-based and image-based width methods (2σ, Gaussian 1/e²)
+```bash
+pip install pyqt6 matplotlib numpy scipy pandas openpyxl pillow
+```
 
-Interactive caustic plots, histograms, and statistical summaries
+### Option B: PyQt5
 
-Modern, responsive PyQt GUI (PyQt5 / PyQt6 compatible)
+```bash
+pip install pyqt5 matplotlib numpy scipy pandas openpyxl pillow
+```
 
-Lazy image loading with false-color visualization (Viridis, Inferno, etc.)
+## Run the GUI
 
-Export to Excel and CSV for reporting and trending
+From this folder:
 
-Cross-platform: Linux and Windows
+```bash
+python run_gui.py
+```
 
-Intended use
+## Run the CLI
 
-This tool is intended for engineering, R&D, and production characterization of laser beam quality. It is provided as-is and is not a certified metrology instrument.
+Single file -> workbook:
+
+```bash
+python -m beam_m2_app.cli /path/to/file.m2 --out results.xlsx
+```
+
+Batch (folder of `.m2`) -> summary workbook:
+
+```bash
+python -m beam_m2_app.cli /path/to/folder --batch --out summary.xlsx
+```
+
+## Notes on methods
+
+- **M2 file moments (fast)** uses `XX/YY/XY` from the `.m2` file. This does not require the referenced TIFFs to be present.
+- **Image 2nd moments (2σ)** computes centroid + second moments from the TIFF intensity (after robust background subtraction). Optional `drop_down` masks low intensity.
+- **Image Gaussian fit (1/e²)** fits a rotated 2D Gaussian in physical coordinates (uses `facX/facY`).
+
+The caustic fit is performed on `w(z)^2` via a quadratic fit:
+
+```
+w(z)^2 = A z^2 + B z + C
+z0 = -B/(2A)
+w0^2 = C - B^2/(4A)
+theta = sqrt(A)
+```
+
+Then:
+
+- `BPP = w0 * theta`
+- `M² = pi * w0 * theta / lambda`
+
+Units:
+- `w` and `z` are in **mm**
+- `theta` is in **rad** (reported as mrad in the UI)
+
