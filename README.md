@@ -4,7 +4,7 @@
 
 A fast, cross-platform Python application for **laser beam quality analysis** from CinSquare-style M² measurement exports (`.m2`), with optional image-based verification from associated **TIFF** frames.
 
-This project is built for real lab + production workflows:
+This project is built for lab + production workflows:
 - **Batch first** (metadata-only, fast)
 - **Deep-dive on demand** (load images only when you actually need them)
 - **Exportable results** (Excel/CSV)
@@ -192,7 +192,7 @@ python -m beam_m2_app.cli --help
 ### Moment-based (from `.m2`) is usually the right default
 - Very fast
 - No TIFF loading
-- Often aligns with vendor/internal calculations
+- Aligns with vendor/internal calculations
 
 ### Gaussian 1/e² can produce “too small” widths
 A Gaussian fit emphasizes the core. It may under-report width for:
@@ -218,7 +218,6 @@ This tool is designed to avoid unnecessary TIFF reads:
 
 Contributions are welcome, especially:
 - additional width methods / robust fitting options
-- broader `.m2` format compatibility
 - better reporting exports (PDF summaries, plot bundles)
 - test fixtures and regression tests
 
