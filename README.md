@@ -140,15 +140,17 @@ python run_gui.py
 A common layout looks like this:
 ```
 /maindir/
-  portA/
-    001.m2
-    002.m2
-  portB/
-    001.m2
-    002.m2
+  DeviceA/
+    Port_001.m2
+    Port_002.m2
+    ...
+  DeviceB/
+    Port_001.m2
+    Port_002.m2
+    ...
 ```
 
-The tool can treat `portA` and `portB` as **components**, allowing direct per-component comparisons.
+The tool can treat `DeviceA` and `DeviceB` as **components**, allowing direct per-component comparisons.
 
 ### Single analysis
 1. Open a single `.m2`
