@@ -62,6 +62,30 @@ def results_to_dataframe(results: M2Results) -> pd.DataFrame:
     return pd.DataFrame([r])
 
 
+def fit_summary_dataframe(results: M2Results) -> pd.DataFrame:
+    rows = []
+    for fit in (results.fit_x, results.fit_y):
+        rows.append(
+            {
+                'axis': fit.axis,
+                'method': fit.method.value,
+                'axis_mode': fit.axis_mode.value,
+                'w0_mm': fit.w0,
+                'theta_rad': fit.theta,
+                'theta_mrad': fit.theta * 1e3,
+                'z0': fit.z0,
+                'zR': fit.zR,
+                'bpp_mm_rad': fit.bpp,
+                'bpp_mm_mrad': fit.bpp * 1e3,
+                'm2': fit.m2,
+                'A': fit.A,
+                'B': fit.B,
+                'C': fit.C,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def export_widths_csv(widths: List[FrameWidths], out_path: Union[str, Path]) -> Path:
     out = Path(out_path).expanduser().resolve()
     df = widths_to_dataframe(widths)
@@ -86,6 +110,23 @@ def export_results_excel(
 
     with pd.ExcelWriter(out, engine='openpyxl') as writer:
         results_to_dataframe(results).to_excel(writer, index=False, sheet_name='summary')
+        if widths is not None:
+            widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
+
+    return out
+
+
+def export_single_report_excel(
+    results: M2Results,
+    widths: Optional[List[FrameWidths]],
+    out_path: Union[str, Path],
+) -> Path:
+    """Write a single workbook containing summary + fit details + per-frame widths."""
+    out = Path(out_path).expanduser().resolve()
+
+    with pd.ExcelWriter(out, engine='openpyxl') as writer:
+        results_to_dataframe(results).to_excel(writer, index=False, sheet_name='summary')
+        fit_summary_dataframe(results).to_excel(writer, index=False, sheet_name='fit')
         if widths is not None:
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
 

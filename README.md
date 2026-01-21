@@ -172,6 +172,11 @@ Run a single file:
 python -m beam_m2_app.cli /path/to/file.m2 --out results.xlsx
 ```
 
+Generate a single-measurement report (PDF + Excel):
+```bash
+python -m beam_m2_app.cli /path/to/file.m2 --report report/output_base
+```
+
 Run batch recursively:
 ```bash
 python -m beam_m2_app.cli /path/to/root --batch --recursive --out batch_summary.xlsx
