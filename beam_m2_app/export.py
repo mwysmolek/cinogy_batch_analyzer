@@ -123,7 +123,7 @@ def export_single_report_excel(
     out_path: Union[str, Path],
     *,
     meas: Optional[M2Measurement] = None,
-    image_max_dim: int = 220,
+    image_max_dim: int = 160,
 ) -> Path:
     """Write a single workbook containing summary + fit details + per-frame widths.
 
@@ -195,15 +195,15 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
             pil = Image.fromarray(img_u8, mode='L')
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                 tmp_path = Path(tmp.name)
-            pil.save(tmp_path)
+            pil.save(tmp_path, optimize=True, compress_level=9)
             temp_paths.append(tmp_path)
 
             xl_img = XlImage(str(tmp_path))
             xl_img.anchor = f'C{row}'
             sheet.add_image(xl_img)
 
-            sheet.row_dimensions[row].height = max(40, image_max_dim * 0.75)
-            sheet.column_dimensions['C'].width = max(20, image_max_dim * 0.12)
+            sheet.row_dimensions[row].height = max(30, image_max_dim * 0.6)
+            sheet.column_dimensions['C'].width = max(18, image_max_dim * 0.1)
 
         row += 1
 
