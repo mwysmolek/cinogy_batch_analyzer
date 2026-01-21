@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
 import pandas as pd
 
 from .analysis import FrameWidths, M2Results
+from .image_io import read_tiff_preview, robust_background
+from .models import M2Measurement
 
 
 def widths_to_dataframe(widths: List[FrameWidths]) -> pd.DataFrame:
@@ -62,6 +63,30 @@ def results_to_dataframe(results: M2Results) -> pd.DataFrame:
     return pd.DataFrame([r])
 
 
+def fit_summary_dataframe(results: M2Results) -> pd.DataFrame:
+    rows = []
+    for fit in (results.fit_x, results.fit_y):
+        rows.append(
+            {
+                'axis': fit.axis,
+                'method': fit.method.value,
+                'axis_mode': fit.axis_mode.value,
+                'w0_mm': fit.w0,
+                'theta_rad': fit.theta,
+                'theta_mrad': fit.theta * 1e3,
+                'z0': fit.z0,
+                'zR': fit.zR,
+                'bpp_mm_rad': fit.bpp,
+                'bpp_mm_mrad': fit.bpp * 1e3,
+                'm2': fit.m2,
+                'A': fit.A,
+                'B': fit.B,
+                'C': fit.C,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def export_widths_csv(widths: List[FrameWidths], out_path: Union[str, Path]) -> Path:
     out = Path(out_path).expanduser().resolve()
     df = widths_to_dataframe(widths)
@@ -90,3 +115,96 @@ def export_results_excel(
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
 
     return out
+
+
+def export_single_report_excel(
+    results: M2Results,
+    widths: Optional[List[FrameWidths]],
+    out_path: Union[str, Path],
+    *,
+    meas: Optional[M2Measurement] = None,
+    image_max_dim: int = 220,
+) -> Path:
+    """Write a single workbook containing summary + fit details + per-frame widths.
+
+    If `meas` is provided, embed preview images for each frame into an `images` sheet.
+    """
+    out = Path(out_path).expanduser().resolve()
+
+    temp_paths: List[Path] = []
+    with pd.ExcelWriter(out, engine='openpyxl') as writer:
+        results_to_dataframe(results).to_excel(writer, index=False, sheet_name='summary')
+        fit_summary_dataframe(results).to_excel(writer, index=False, sheet_name='fit')
+        if widths is not None:
+            widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
+        if meas is not None:
+            temp_paths = _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
+
+    for p in temp_paths:
+        try:
+            p.unlink()
+        except Exception:
+            pass
+
+    return out
+
+
+def _normalize_image(image: np.ndarray) -> np.ndarray:
+    img = np.asarray(image, dtype=float)
+    if img.size == 0:
+        return img
+    bg = robust_background(img)
+    img = img - float(bg)
+    img[img < 0] = 0.0
+    vmax = float(np.max(img)) if img.size else 0.0
+    if vmax > 0:
+        img = img / vmax
+    return img
+
+
+def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> List[Path]:
+    import tempfile
+
+    from openpyxl.drawing.image import Image as XlImage
+    from PIL import Image
+
+    wb = writer.book
+    sheet = wb.create_sheet(title='images')
+    sheet['A1'] = 'Frame'
+    sheet['B1'] = 'z'
+
+    frames = meas.active_frames()
+    if not frames:
+        sheet['A2'] = 'No frames'
+        return []
+
+    temp_paths: List[Path] = []
+    row = 2
+    for frame in frames:
+        sheet[f'A{row}'] = frame.index
+        sheet[f'B{row}'] = float(frame.z)
+
+        try:
+            img = read_tiff_preview(meas.resolve_image_path(frame), max_dim=image_max_dim)
+        except Exception:
+            img = None
+
+        if img is not None:
+            norm = _normalize_image(img)
+            img_u8 = np.clip(norm * 255.0, 0, 255).astype(np.uint8)
+            pil = Image.fromarray(img_u8, mode='L')
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            pil.save(tmp_path)
+            temp_paths.append(tmp_path)
+
+            xl_img = XlImage(str(tmp_path))
+            xl_img.anchor = f'C{row}'
+            sheet.add_image(xl_img)
+
+            sheet.row_dimensions[row].height = max(40, image_max_dim * 0.75)
+            sheet.column_dimensions['C'].width = max(20, image_max_dim * 0.12)
+
+        row += 1
+
+    return temp_paths
