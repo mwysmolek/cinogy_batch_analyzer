@@ -22,6 +22,7 @@ import pandas as pd
 from .analysis import AxisMode, WidthMethod, compute_frame_widths, compute_m2_results
 from .export import export_results_excel, results_to_dataframe
 from .m2_parser import parse_m2_file
+from .report import generate_single_report
 
 
 def _parse_method(s: str) -> WidthMethod:
@@ -52,6 +53,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help='Drop-down threshold fraction for image moments (e.g. 0.1353)')
     ap.add_argument('--wavelength', type=float, default=None, help='Wavelength override (nm)')
     ap.add_argument('--out', type=str, default='results.xlsx', help='Output .xlsx path')
+    ap.add_argument('--report', type=str, default=None,
+                    help='Generate a single-measurement report (PDF + Excel) using this base path')
 
     args = ap.parse_args(argv)
 
@@ -63,6 +66,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         results = compute_m2_results(meas, widths, method=args.method, axis_mode=args.axis, wavelength_nm=args.wavelength)
         export_results_excel(results, widths, args.out)
         print(f"Wrote {args.out}")
+        if args.report:
+            report_base = Path(args.report).expanduser()
+            if report_base.suffix.lower() == '.pdf':
+                pdf_path = report_base
+                excel_path = report_base.with_suffix('.xlsx')
+            elif report_base.suffix.lower() == '.xlsx':
+                excel_path = report_base
+                pdf_path = report_base.with_suffix('.pdf')
+            else:
+                pdf_path = report_base.with_suffix('.pdf')
+                excel_path = report_base.with_suffix('.xlsx')
+            pdf_out, excel_out = generate_single_report(
+                meas,
+                widths,
+                results,
+                method=args.method,
+                axis_mode=args.axis,
+                pdf_path=pdf_path,
+                excel_path=excel_path,
+            )
+            print(f"Wrote {pdf_out}")
+            print(f"Wrote {excel_out}")
         return 0
 
     # Batch
