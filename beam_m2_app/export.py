@@ -123,12 +123,9 @@ def export_single_report_excel(
     out_path: Union[str, Path],
     *,
     meas: Optional[M2Measurement] = None,
-    image_max_dim: int = 160,
+    image_max_dim: int = 128,
 ) -> Path:
-    """Write a single workbook containing summary + fit details + per-frame widths.
-
-    If `meas` is provided, embed preview images for each frame into an `images` sheet.
-    """
+    """Write a single workbook containing summary + fit details + per-frame widths."""
     out = Path(out_path).expanduser().resolve()
 
     with pd.ExcelWriter(out, engine='openpyxl') as writer:
@@ -155,9 +152,20 @@ def _normalize_image(image: np.ndarray) -> np.ndarray:
     return img
 
 
+def _png_bytes_from_image(image: np.ndarray) -> "BytesIO":
+    from io import BytesIO
+    from PIL import Image
+
+    img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
+    pil = Image.fromarray(img_u8, mode='L')
+    buf = BytesIO()
+    pil.save(buf, format='PNG', optimize=True, compress_level=9)
+    buf.seek(0)
+    return buf
+
+
 def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> None:
     from openpyxl.drawing.image import Image as XlImage
-    from PIL import Image
 
     wb = writer.book
     sheet = wb.create_sheet(title='images')
@@ -181,13 +189,12 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
 
         if img is not None:
             norm = _normalize_image(img)
-            img_u8 = np.clip(norm * 255.0, 0, 255).astype(np.uint8)
-            pil = Image.fromarray(img_u8, mode='L')
-            xl_img = XlImage(pil)
+            img_bytes = _png_bytes_from_image(norm)
+            xl_img = XlImage(img_bytes)
             xl_img.anchor = f'C{row}'
             sheet.add_image(xl_img)
 
-            sheet.row_dimensions[row].height = max(30, image_max_dim * 0.6)
-            sheet.column_dimensions['C'].width = max(18, image_max_dim * 0.1)
+            sheet.row_dimensions[row].height = max(26, image_max_dim * 0.55)
+            sheet.column_dimensions['C'].width = max(16, image_max_dim * 0.09)
 
         row += 1
