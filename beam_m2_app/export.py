@@ -121,9 +121,11 @@ def export_single_report_excel(
     results: M2Results,
     widths: Optional[List[FrameWidths]],
     out_path: Union[str, Path],
+
     *,
     meas: Optional[M2Measurement] = None,
     image_max_dim: int = 128,
+
 ) -> Path:
     """Write a single workbook containing summary + fit details + per-frame widths."""
     out = Path(out_path).expanduser().resolve()
@@ -133,6 +135,7 @@ def export_single_report_excel(
         fit_summary_dataframe(results).to_excel(writer, index=False, sheet_name='fit')
         if widths is not None:
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
+
         if meas is not None:
             _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
 
@@ -198,3 +201,7 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
             sheet.column_dimensions['C'].width = max(16, image_max_dim * 0.09)
 
         row += 1
+
+
+    return out
+

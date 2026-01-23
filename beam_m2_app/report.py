@@ -53,6 +53,7 @@ def _metric_rows(results: M2Results, method: WidthMethod, axis_mode: AxisMode) -
     return rows
 
 
+
 def _plot_caustic(
     ax,
     *,
@@ -133,6 +134,7 @@ def _plot_caustic_with_residuals(
     ax_resid.legend(fontsize=8)
 
 
+
 def _add_summary_page(
     pdf: PdfPages,
     *,
@@ -143,6 +145,7 @@ def _add_summary_page(
     axis_mode: AxisMode,
 ) -> None:
     fig = Figure(figsize=(8.27, 11.69))
+
     fig.suptitle("Beam M² Report (Single Measurement)", fontsize=16, weight="bold", y=0.98)
 
     gs = fig.add_gridspec(3, 2, height_ratios=[1.0, 1.4, 1.0], hspace=0.4, wspace=0.3)
@@ -154,11 +157,19 @@ def _add_summary_page(
     ax_meta.axis("off")
     ax_table.axis("off")
 
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+
+    fig.text(0.05, 0.95, "Beam M² Report (Single Measurement)", fontsize=16, weight="bold")
+    fig.text(0.05, 0.92, f"Measurement: {meas.m2_path.name}", fontsize=11)
+    fig.text(0.05, 0.90, f"Source path: {meas.m2_path}", fontsize=9)
+
     z_vals = np.array([w.z for w in widths], dtype=float)
     if z_vals.size:
         z_range = f"{np.nanmin(z_vals):.6g} .. {np.nanmax(z_vals):.6g}"
     else:
         z_range = "n/a"
+
 
     meta_lines = [
         f"Measurement: {meas.m2_path.name}",
@@ -172,6 +183,13 @@ def _add_summary_page(
     rows = _metric_rows(results, method, axis_mode)
     table_data = [[label, value] for label, value in rows]
     table = ax_table.table(
+
+    fig.text(0.05, 0.87, f"Frames: {len(widths)} (z range: {z_range})", fontsize=10)
+
+    rows = _metric_rows(results, method, axis_mode)
+    table_data = [[label, value] for label, value in rows]
+
+    table = ax.table(
         cellText=table_data,
         colLabels=["Metric", "Value"],
         cellLoc="left",
@@ -197,6 +215,8 @@ def _add_summary_page(
         ax_ratio.grid(True)
         ax_ratio.legend(fontsize=8)
         ax_ratio.set_title("Beam Widths and Ellipticity")
+    table.set_fontsize(9)
+    table.scale(1.0, 1.5)
 
     pdf.savefig(fig)
 
@@ -258,6 +278,31 @@ def _add_widths_page(
         ax2.legend(fontsize=8)
         ax2.set_title("Centroid Drift")
 
+    ax = fig.add_subplot(111)
+
+    z, wx, wy = _axis_width_arrays(widths, axis_mode)
+    if z.size == 0:
+        ax.text(0.5, 0.5, "No frame data for caustic plot", ha="center", va="center")
+    else:
+        order = np.argsort(z)
+        z = z[order]
+        wx = wx[order]
+        wy = wy[order]
+
+        z_dense = np.linspace(float(np.nanmin(z)), float(np.nanmax(z)), 200)
+        wx_fit = _caustic_curve(z_dense, results.fit_x.w0, results.fit_x.theta, results.fit_x.z0)
+        wy_fit = _caustic_curve(z_dense, results.fit_y.w0, results.fit_y.theta, results.fit_y.z0)
+
+        ax.plot(z, wx, "o", label="X data")
+        ax.plot(z_dense, wx_fit, "-", label="X fit")
+        ax.plot(z, wy, "o", label="Y data")
+        ax.plot(z_dense, wy_fit, "-", label="Y fit")
+        ax.set_xlabel("z")
+        ax.set_ylabel("Beam radius w (mm)")
+        ax.grid(True)
+        ax.legend()
+
+    ax.set_title("Caustic Fit")
     fig.tight_layout()
     pdf.savefig(fig)
 
@@ -408,6 +453,7 @@ def _add_profile_page(
     pdf.savefig(fig)
 
 
+
 def generate_single_report(
     meas: M2Measurement,
     widths: List[FrameWidths],
@@ -428,6 +474,7 @@ def generate_single_report(
     pdf_out.parent.mkdir(parents=True, exist_ok=True)
 
     export_single_report_excel(results, widths, excel_out, meas=meas, image_max_dim=excel_image_max_dim)
+    export_single_report_excel(results, widths, excel_out)
 
     frames = meas.active_frames()
     with PdfPages(pdf_out) as pdf:
@@ -456,6 +503,7 @@ def generate_single_report(
             widths=widths,
             max_dim=image_max_dim,
         )
+
         _add_image_pages(
             pdf,
             meas=meas,
