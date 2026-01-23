@@ -121,6 +121,10 @@ def export_single_report_excel(
     results: M2Results,
     widths: Optional[List[FrameWidths]],
     out_path: Union[str, Path],
+    *,
+    meas: Optional[M2Measurement] = None,
+    image_max_dim: int = 128,
+
 
     *,
     meas: Optional[M2Measurement] = None,
@@ -130,11 +134,20 @@ def export_single_report_excel(
     """Write a single workbook containing summary + fit details + per-frame widths."""
     out = Path(out_path).expanduser().resolve()
 
+    temp_paths: List[Path] = []
     with pd.ExcelWriter(out, engine='openpyxl') as writer:
         results_to_dataframe(results).to_excel(writer, index=False, sheet_name='summary')
         fit_summary_dataframe(results).to_excel(writer, index=False, sheet_name='fit')
         if widths is not None:
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
+        if meas is not None:
+            temp_paths = _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
+
+    for p in temp_paths:
+        try:
+            p.unlink()
+        except Exception:
+            pass
 
         if meas is not None:
             _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
@@ -155,12 +168,22 @@ def _normalize_image(image: np.ndarray) -> np.ndarray:
     return img
 
 
+def _write_png_temp(image: np.ndarray) -> Path:
+    import tempfile
+
 def _png_bytes_from_image(image: np.ndarray) -> "BytesIO":
     from io import BytesIO
     from PIL import Image
 
     img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
     pil = Image.fromarray(img_u8, mode='L')
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    pil.save(tmp_path, format='PNG', optimize=True, compress_level=9)
+    return tmp_path
+
+
+def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> List[Path]:
     buf = BytesIO()
     pil.save(buf, format='PNG', optimize=True, compress_level=9)
     buf.seek(0)
@@ -179,6 +202,9 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
     frames = meas.active_frames()
     if not frames:
         sheet['A2'] = 'No frames'
+        return []
+    row = 2
+    temp_paths: List[Path] = []
         return
     row = 2
     for frame in frames:
@@ -192,6 +218,9 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
 
         if img is not None:
             norm = _normalize_image(img)
+            tmp_path = _write_png_temp(norm)
+            temp_paths.append(tmp_path)
+            xl_img = XlImage(str(tmp_path))
             img_bytes = _png_bytes_from_image(norm)
             xl_img = XlImage(img_bytes)
             xl_img.anchor = f'C{row}'
@@ -202,6 +231,4 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
 
         row += 1
 
-
-    return out
-
+    return temp_paths

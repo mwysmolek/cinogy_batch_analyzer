@@ -157,6 +157,7 @@ def _add_summary_page(
     ax_meta.axis("off")
     ax_table.axis("off")
 
+
     ax = fig.add_subplot(111)
     ax.axis("off")
 
@@ -190,6 +191,7 @@ def _add_summary_page(
     table_data = [[label, value] for label, value in rows]
 
     table = ax.table(
+
         cellText=table_data,
         colLabels=["Metric", "Value"],
         cellLoc="left",
@@ -215,8 +217,10 @@ def _add_summary_page(
         ax_ratio.grid(True)
         ax_ratio.legend(fontsize=8)
         ax_ratio.set_title("Beam Widths and Ellipticity")
+
     table.set_fontsize(9)
     table.scale(1.0, 1.5)
+
 
     pdf.savefig(fig)
 
@@ -278,6 +282,7 @@ def _add_widths_page(
         ax2.legend(fontsize=8)
         ax2.set_title("Centroid Drift")
 
+
     ax = fig.add_subplot(111)
 
     z, wx, wy = _axis_width_arrays(widths, axis_mode)
@@ -303,6 +308,7 @@ def _add_widths_page(
         ax.legend()
 
     ax.set_title("Caustic Fit")
+
     fig.tight_layout()
     pdf.savefig(fig)
 
@@ -453,7 +459,6 @@ def _add_profile_page(
     pdf.savefig(fig)
 
 
-
 def generate_single_report(
     meas: M2Measurement,
     widths: List[FrameWidths],
@@ -474,7 +479,9 @@ def generate_single_report(
     pdf_out.parent.mkdir(parents=True, exist_ok=True)
 
     export_single_report_excel(results, widths, excel_out, meas=meas, image_max_dim=excel_image_max_dim)
+
     export_single_report_excel(results, widths, excel_out)
+
 
     frames = meas.active_frames()
     with PdfPages(pdf_out) as pdf:
