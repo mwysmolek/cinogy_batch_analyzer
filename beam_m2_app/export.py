@@ -124,6 +124,12 @@ def export_single_report_excel(
     *,
     meas: Optional[M2Measurement] = None,
     image_max_dim: int = 128,
+
+
+    *,
+    meas: Optional[M2Measurement] = None,
+    image_max_dim: int = 128,
+
 ) -> Path:
     """Write a single workbook containing summary + fit details + per-frame widths."""
     out = Path(out_path).expanduser().resolve()
@@ -142,6 +148,9 @@ def export_single_report_excel(
             p.unlink()
         except Exception:
             pass
+
+        if meas is not None:
+            _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
 
     return out
 
@@ -162,6 +171,8 @@ def _normalize_image(image: np.ndarray) -> np.ndarray:
 def _write_png_temp(image: np.ndarray) -> Path:
     import tempfile
 
+def _png_bytes_from_image(image: np.ndarray) -> "BytesIO":
+    from io import BytesIO
     from PIL import Image
 
     img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
@@ -173,6 +184,13 @@ def _write_png_temp(image: np.ndarray) -> Path:
 
 
 def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> List[Path]:
+    buf = BytesIO()
+    pil.save(buf, format='PNG', optimize=True, compress_level=9)
+    buf.seek(0)
+    return buf
+
+
+def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> None:
     from openpyxl.drawing.image import Image as XlImage
 
     wb = writer.book
@@ -187,6 +205,8 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
         return []
     row = 2
     temp_paths: List[Path] = []
+        return
+    row = 2
     for frame in frames:
         sheet[f'A{row}'] = frame.index
         sheet[f'B{row}'] = float(frame.z)
@@ -201,6 +221,8 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
             tmp_path = _write_png_temp(norm)
             temp_paths.append(tmp_path)
             xl_img = XlImage(str(tmp_path))
+            img_bytes = _png_bytes_from_image(norm)
+            xl_img = XlImage(img_bytes)
             xl_img.anchor = f'C{row}'
             sheet.add_image(xl_img)
 
