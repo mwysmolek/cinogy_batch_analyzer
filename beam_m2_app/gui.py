@@ -66,7 +66,7 @@ from .analysis import (
     widths_from_image_moments,
     widths_from_image_gauss_fit,
 )
-from .export import export_results_excel, export_widths_csv, export_widths_excel, results_to_dataframe, widths_to_dataframe
+from .export import export_results_excel, export_single_report_excel, export_widths_csv, export_widths_excel, results_to_dataframe, widths_to_dataframe
 from .image_io import read_tiff, read_tiff_preview
 from .m2_parser import parse_m2_file
 
@@ -2235,7 +2235,13 @@ class MainWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Export workbook', '', 'Excel (*.xlsx)')
         if not path:
             return
-        export_results_excel(self.single_tab.results, self.single_tab.widths, path)
+        export_single_report_excel(
+            self.single_tab.results,
+            self.single_tab.widths,
+            path,
+            meas=self.single_tab.meas,
+            image_max_dim=128,
+        )
 
 
 def run():
