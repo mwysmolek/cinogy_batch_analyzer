@@ -64,6 +64,10 @@ class FrameWidths:
     # For debugging / UI
     snr: Optional[float] = None
 
+    # Image reference (for traceability)
+    filename: str = ""
+    image_path: str = ""
+
 
 @dataclass
 class CausticFit:
@@ -109,7 +113,12 @@ def _cov_from_frame_mm(frame: M2Frame) -> np.ndarray:
     return np.array([[cxx, cxy], [cxy, cyy]], dtype=float)
 
 
-def widths_from_m2_frame(frame: M2Frame) -> FrameWidths:
+def widths_from_m2_frame(
+    frame: M2Frame,
+    *,
+    filename: str = "",
+    image_path: str = "",
+) -> FrameWidths:
     """Compute beam widths from the vendor-provided second moments."""
     C = _cov_from_frame_mm(frame)
 
@@ -131,6 +140,9 @@ def widths_from_m2_frame(frame: M2Frame) -> FrameWidths:
     cx = frame.X0
     cy = frame.Y0
 
+    # Use provided image path or fall back to frame's filename
+    fn = filename if filename else frame.filename
+
     return FrameWidths(
         index=frame.index,
         z=float(frame.z),
@@ -142,6 +154,8 @@ def widths_from_m2_frame(frame: M2Frame) -> FrameWidths:
         cx=float(cx),
         cy=float(cy),
         snr=frame.snr,
+        filename=fn,
+        image_path=image_path,
     )
 
 
@@ -456,13 +470,20 @@ def compute_frame_widths(
     out: List[FrameWidths] = []
 
     for fr in meas.active_frames():
+        # Resolve image path for traceability
+        img_path = meas.resolve_image_path(fr)
+        img_path_str = str(img_path) if img_path else ""
+
         if method == WidthMethod.M2_FILE_MOMENTS:
-            fw = widths_from_m2_frame(fr)
+            fw = widths_from_m2_frame(
+                fr,
+                filename=fr.filename,
+                image_path=img_path_str,
+            )
             out.append(fw)
             continue
 
         # Image-based methods
-        img_path = meas.resolve_image_path(fr)
         image = read_tiff(img_path)
 
         if method == WidthMethod.IMAGE_2ND_MOMENTS:
@@ -475,6 +496,8 @@ def compute_frame_widths(
         fw.index = fr.index
         fw.z = fr.z
         fw.snr = fr.snr
+        fw.filename = fr.filename
+        fw.image_path = img_path_str
         out.append(fw)
 
     # Sort by z for fitting

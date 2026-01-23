@@ -28,6 +28,8 @@ def widths_to_dataframe(widths: List[FrameWidths]) -> pd.DataFrame:
                 'cx_px': w.cx,
                 'cy_px': w.cy,
                 'snr': w.snr,
+                'filename': w.filename,
+                'image_path': w.image_path,
             }
         )
     return pd.DataFrame(rows)
