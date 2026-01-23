@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import List, Optional, Union
 
 import numpy as np
 import pandas as pd
 
 from .analysis import FrameWidths, M2Results
+from .image_io import read_tiff_preview, robust_background
+from .models import M2Measurement
 
 
 def widths_to_dataframe(widths: List[FrameWidths]) -> pd.DataFrame:
@@ -120,6 +121,11 @@ def export_single_report_excel(
     results: M2Results,
     widths: Optional[List[FrameWidths]],
     out_path: Union[str, Path],
+
+    *,
+    meas: Optional[M2Measurement] = None,
+    image_max_dim: int = 128,
+
 ) -> Path:
     """Write a single workbook containing summary + fit details + per-frame widths."""
     out = Path(out_path).expanduser().resolve()
@@ -130,4 +136,72 @@ def export_single_report_excel(
         if widths is not None:
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
 
+        if meas is not None:
+            _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
+
     return out
+
+
+def _normalize_image(image: np.ndarray) -> np.ndarray:
+    img = np.asarray(image, dtype=float)
+    if img.size == 0:
+        return img
+    bg = robust_background(img)
+    img = img - float(bg)
+    img[img < 0] = 0.0
+    vmax = float(np.max(img)) if img.size else 0.0
+    if vmax > 0:
+        img = img / vmax
+    return img
+
+
+def _png_bytes_from_image(image: np.ndarray) -> "BytesIO":
+    from io import BytesIO
+    from PIL import Image
+
+    img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
+    pil = Image.fromarray(img_u8, mode='L')
+    buf = BytesIO()
+    pil.save(buf, format='PNG', optimize=True, compress_level=9)
+    buf.seek(0)
+    return buf
+
+
+def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> None:
+    from openpyxl.drawing.image import Image as XlImage
+
+    wb = writer.book
+    sheet = wb.create_sheet(title='images')
+    writer.sheets['images'] = sheet
+    sheet['A1'] = 'Frame'
+    sheet['B1'] = 'z'
+
+    frames = meas.active_frames()
+    if not frames:
+        sheet['A2'] = 'No frames'
+        return
+    row = 2
+    for frame in frames:
+        sheet[f'A{row}'] = frame.index
+        sheet[f'B{row}'] = float(frame.z)
+
+        try:
+            img = read_tiff_preview(meas.resolve_image_path(frame), max_dim=image_max_dim)
+        except Exception:
+            img = None
+
+        if img is not None:
+            norm = _normalize_image(img)
+            img_bytes = _png_bytes_from_image(norm)
+            xl_img = XlImage(img_bytes)
+            xl_img.anchor = f'C{row}'
+            sheet.add_image(xl_img)
+
+            sheet.row_dimensions[row].height = max(26, image_max_dim * 0.55)
+            sheet.column_dimensions['C'].width = max(16, image_max_dim * 0.09)
+
+        row += 1
+
+
+    return out
+

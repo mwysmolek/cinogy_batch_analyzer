@@ -53,6 +53,88 @@ def _metric_rows(results: M2Results, method: WidthMethod, axis_mode: AxisMode) -
     return rows
 
 
+
+def _plot_caustic(
+    ax,
+    *,
+    widths: List[FrameWidths],
+    results: M2Results,
+    axis_mode: AxisMode,
+    title: str = "Caustic Fit",
+) -> None:
+    z, wx, wy = _axis_width_arrays(widths, axis_mode)
+    if z.size == 0:
+        ax.text(0.5, 0.5, "No frame data for caustic plot", ha="center", va="center")
+        ax.set_title(title)
+        return
+
+    order = np.argsort(z)
+    z = z[order]
+    wx = wx[order]
+    wy = wy[order]
+
+    z_dense = np.linspace(float(np.nanmin(z)), float(np.nanmax(z)), 200)
+    wx_fit = _caustic_curve(z_dense, results.fit_x.w0, results.fit_x.theta, results.fit_x.z0)
+    wy_fit = _caustic_curve(z_dense, results.fit_y.w0, results.fit_y.theta, results.fit_y.z0)
+
+    ax.plot(z, wx, "o", label="X data", markersize=4)
+    ax.plot(z_dense, wx_fit, "-", label="X fit")
+    ax.plot(z, wy, "o", label="Y data", markersize=4)
+    ax.plot(z_dense, wy_fit, "-", label="Y fit")
+    ax.set_xlabel("z")
+    ax.set_ylabel("Beam radius w (mm)")
+    ax.grid(True)
+    ax.legend(fontsize=8)
+    ax.set_title(title)
+
+
+def _plot_caustic_with_residuals(
+    ax_main,
+    ax_resid,
+    *,
+    widths: List[FrameWidths],
+    results: M2Results,
+    axis_mode: AxisMode,
+    title: str,
+) -> None:
+    z, wx, wy = _axis_width_arrays(widths, axis_mode)
+    if z.size == 0:
+        ax_main.text(0.5, 0.5, "No frame data for caustic plot", ha="center", va="center")
+        ax_main.set_title(title)
+        ax_resid.axis("off")
+        return
+
+    order = np.argsort(z)
+    z = z[order]
+    wx = wx[order]
+    wy = wy[order]
+
+    z_dense = np.linspace(float(np.nanmin(z)), float(np.nanmax(z)), 200)
+    wx_fit = _caustic_curve(z_dense, results.fit_x.w0, results.fit_x.theta, results.fit_x.z0)
+    wy_fit = _caustic_curve(z_dense, results.fit_y.w0, results.fit_y.theta, results.fit_y.z0)
+
+    ax_main.plot(z, wx, "o", label="X data", markersize=4)
+    ax_main.plot(z_dense, wx_fit, "-", label="X fit")
+    ax_main.plot(z, wy, "o", label="Y data", markersize=4)
+    ax_main.plot(z_dense, wy_fit, "-", label="Y fit")
+    ax_main.set_xlabel("z")
+    ax_main.set_ylabel("Beam radius w (mm)")
+    ax_main.grid(True)
+    ax_main.legend(fontsize=8)
+    ax_main.set_title(title)
+
+    wx_fit_pts = _caustic_curve(z, results.fit_x.w0, results.fit_x.theta, results.fit_x.z0)
+    wy_fit_pts = _caustic_curve(z, results.fit_y.w0, results.fit_y.theta, results.fit_y.z0)
+    ax_resid.plot(z, wx - wx_fit_pts, "o-", label="X residual", markersize=3)
+    ax_resid.plot(z, wy - wy_fit_pts, "o-", label="Y residual", markersize=3)
+    ax_resid.axhline(0, color="black", linewidth=0.8)
+    ax_resid.set_xlabel("z")
+    ax_resid.set_ylabel("Residual (mm)")
+    ax_resid.grid(True)
+    ax_resid.legend(fontsize=8)
+
+
+
 def _add_summary_page(
     pdf: PdfPages,
     *,
@@ -63,6 +145,18 @@ def _add_summary_page(
     axis_mode: AxisMode,
 ) -> None:
     fig = Figure(figsize=(8.27, 11.69))
+
+    fig.suptitle("Beam M² Report (Single Measurement)", fontsize=16, weight="bold", y=0.98)
+
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.0, 1.4, 1.0], hspace=0.4, wspace=0.3)
+    ax_meta = fig.add_subplot(gs[0, 0])
+    ax_table = fig.add_subplot(gs[0, 1])
+    ax_caustic = fig.add_subplot(gs[1, :])
+    ax_ratio = fig.add_subplot(gs[2, :])
+
+    ax_meta.axis("off")
+    ax_table.axis("off")
+
     ax = fig.add_subplot(111)
     ax.axis("off")
 
@@ -75,6 +169,21 @@ def _add_summary_page(
         z_range = f"{np.nanmin(z_vals):.6g} .. {np.nanmax(z_vals):.6g}"
     else:
         z_range = "n/a"
+
+
+    meta_lines = [
+        f"Measurement: {meas.m2_path.name}",
+        f"Source path: {meas.m2_path}",
+        f"Frames: {len(widths)} (z range: {z_range})",
+        f"Method: {method.value}",
+        f"Axis mode: {axis_mode.value}",
+    ]
+    ax_meta.text(0.0, 1.0, "\n".join(meta_lines), va="top", fontsize=9)
+
+    rows = _metric_rows(results, method, axis_mode)
+    table_data = [[label, value] for label, value in rows]
+    table = ax_table.table(
+
     fig.text(0.05, 0.87, f"Frames: {len(widths)} (z range: {z_range})", fontsize=10)
 
     rows = _metric_rows(results, method, axis_mode)
@@ -88,6 +197,24 @@ def _add_summary_page(
         loc="center",
     )
     table.auto_set_font_size(False)
+    table.set_fontsize(8.5)
+    table.scale(1.0, 1.2)
+
+    _plot_caustic(ax_caustic, widths=widths, results=results, axis_mode=axis_mode, title="Caustic Fit Overview")
+
+    z, wx, wy = _axis_width_arrays(widths, axis_mode)
+    if z.size == 0:
+        ax_ratio.text(0.5, 0.5, "No frame data for width/ellipticity plot", ha="center", va="center")
+    else:
+        ratio = np.divide(wx, wy, out=np.full_like(wx, np.nan), where=wy != 0)
+        ax_ratio.plot(z, wx, "o-", label="wX", markersize=3)
+        ax_ratio.plot(z, wy, "o-", label="wY", markersize=3)
+        ax_ratio.plot(z, ratio, "s--", label="wX / wY", markersize=3)
+        ax_ratio.set_xlabel("z")
+        ax_ratio.set_ylabel("Width / Ratio")
+        ax_ratio.grid(True)
+        ax_ratio.legend(fontsize=8)
+        ax_ratio.set_title("Beam Widths and Ellipticity")
     table.set_fontsize(9)
     table.scale(1.0, 1.5)
 
@@ -102,6 +229,55 @@ def _add_caustic_page(
     axis_mode: AxisMode,
 ) -> None:
     fig = Figure(figsize=(8.27, 11.69))
+    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.3)
+    ax_main = fig.add_subplot(gs[0, 0])
+    ax_resid = fig.add_subplot(gs[1, 0])
+
+    _plot_caustic_with_residuals(
+        ax_main,
+        ax_resid,
+        widths=widths,
+        results=results,
+        axis_mode=axis_mode,
+        title="Caustic Fit (Detailed)",
+    )
+    fig.tight_layout()
+    pdf.savefig(fig)
+
+
+def _add_widths_page(
+    pdf: PdfPages,
+    *,
+    widths: List[FrameWidths],
+    axis_mode: AxisMode,
+) -> None:
+    fig = Figure(figsize=(8.27, 11.69))
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212)
+
+    z, wx, wy = _axis_width_arrays(widths, axis_mode)
+    if z.size == 0:
+        ax1.text(0.5, 0.5, "No frame data for width plot", ha="center", va="center")
+        ax2.text(0.5, 0.5, "No frame data for centroid plot", ha="center", va="center")
+    else:
+        ax1.plot(z, wx, "o-", label="wX", markersize=3)
+        ax1.plot(z, wy, "o-", label="wY", markersize=3)
+        ax1.set_xlabel("z")
+        ax1.set_ylabel("Beam radius w (mm)")
+        ax1.grid(True)
+        ax1.legend(fontsize=8)
+        ax1.set_title("Per-frame Beam Widths")
+
+        cx = np.array([w.cx for w in widths], dtype=float)
+        cy = np.array([w.cy for w in widths], dtype=float)
+        ax2.plot(z, cx, "o-", label="Centroid X (px)", markersize=3)
+        ax2.plot(z, cy, "o-", label="Centroid Y (px)", markersize=3)
+        ax2.set_xlabel("z")
+        ax2.set_ylabel("Centroid (px)")
+        ax2.grid(True)
+        ax2.legend(fontsize=8)
+        ax2.set_title("Centroid Drift")
+
     ax = fig.add_subplot(111)
 
     z, wx, wy = _axis_width_arrays(widths, axis_mode)
@@ -225,6 +401,59 @@ def _add_image_pages(
         pdf.savefig(fig)
 
 
+def _select_profile_frames(meas: M2Measurement, widths: List[FrameWidths]) -> List[M2Frame]:
+    if not widths:
+        return []
+
+    frames_by_index = {f.index: f for f in meas.active_frames()}
+    z_vals = np.array([w.z for w in widths], dtype=float)
+    idxs = [w.index for w in widths]
+
+    if z_vals.size == 0:
+        return []
+
+    min_idx = idxs[int(np.nanargmin(z_vals))]
+    max_idx = idxs[int(np.nanargmax(z_vals))]
+
+    mid_z = float(np.nanmedian(z_vals))
+    mid_idx = idxs[int(np.nanargmin(np.abs(z_vals - mid_z)))]
+
+    return [frames_by_index[i] for i in [min_idx, mid_idx, max_idx] if i in frames_by_index]
+
+
+def _add_profile_page(
+    pdf: PdfPages,
+    *,
+    meas: M2Measurement,
+    widths: List[FrameWidths],
+    max_dim: int,
+) -> None:
+    frames = _select_profile_frames(meas, widths)
+    if not frames:
+        return
+
+    fig = Figure(figsize=(8.27, 11.69))
+    cols = 3
+    for i, frame in enumerate(frames):
+        ax = fig.add_subplot(1, cols, i + 1)
+        ax.axis("off")
+        try:
+            img = read_tiff_preview(meas.resolve_image_path(frame), max_dim=max_dim)
+        except Exception:
+            img = None
+        if img is None:
+            ax.text(0.5, 0.5, "missing image", ha="center", va="center", fontsize=8)
+        else:
+            norm = _normalize_image(img)
+            ax.imshow(norm, cmap="gray", origin="lower")
+        ax.set_title(f"#{frame.index} z={frame.z:.3g}", fontsize=9)
+
+    fig.suptitle("Representative Beam Profiles", fontsize=12)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    pdf.savefig(fig)
+
+
+
 def generate_single_report(
     meas: M2Measurement,
     widths: List[FrameWidths],
@@ -235,6 +464,7 @@ def generate_single_report(
     pdf_path: Union[str, Path],
     excel_path: Union[str, Path],
     image_max_dim: int = 220,
+    excel_image_max_dim: int = 128,
     images_per_page: int = 12,
 ) -> Tuple[Path, Path]:
     pdf_out = Path(pdf_path).expanduser().resolve()
@@ -243,6 +473,7 @@ def generate_single_report(
     excel_out.parent.mkdir(parents=True, exist_ok=True)
     pdf_out.parent.mkdir(parents=True, exist_ok=True)
 
+    export_single_report_excel(results, widths, excel_out, meas=meas, image_max_dim=excel_image_max_dim)
     export_single_report_excel(results, widths, excel_out)
 
     frames = meas.active_frames()
@@ -261,6 +492,18 @@ def generate_single_report(
             results=results,
             axis_mode=axis_mode,
         )
+        _add_widths_page(
+            pdf,
+            widths=widths,
+            axis_mode=axis_mode,
+        )
+        _add_profile_page(
+            pdf,
+            meas=meas,
+            widths=widths,
+            max_dim=image_max_dim,
+        )
+
         _add_image_pages(
             pdf,
             meas=meas,
