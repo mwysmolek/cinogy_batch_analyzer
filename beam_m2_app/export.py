@@ -202,6 +202,3 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
 
         row += 1
 
-
-    return out
-
