@@ -123,13 +123,36 @@ def export_single_report_excel(
     results: M2Results,
     widths: Optional[List[FrameWidths]],
     out_path: Union[str, Path],
-
     *,
     meas: Optional[M2Measurement] = None,
-    image_max_dim: int = 128,
-
+    image_max_dim: int = 256,
+    colormap: str = 'viridis',
+    gamma: float = 1.0,
 ) -> Path:
-    """Write a single workbook containing summary + fit details + per-frame widths."""
+    """Write a single workbook containing summary + fit details + per-frame widths + images.
+
+    Parameters
+    ----------
+    results : M2Results
+        M² analysis results
+    widths : List[FrameWidths], optional
+        Per-frame beam width measurements (used for images sheet and frames sheet)
+    out_path : str or Path
+        Output Excel file path
+    meas : M2Measurement, optional
+        Measurement data for image embedding
+    image_max_dim : int
+        Maximum dimension for embedded images (default: 256)
+    colormap : str
+        Colormap for beam profile images (default: 'viridis')
+    gamma : float
+        Gamma correction for image display (default: 1.0)
+
+    Returns
+    -------
+    Path
+        Path to the created Excel file
+    """
     out = Path(out_path).expanduser().resolve()
 
     with pd.ExcelWriter(out, engine='openpyxl') as writer:
@@ -139,7 +162,14 @@ def export_single_report_excel(
             widths_to_dataframe(widths).to_excel(writer, index=False, sheet_name='frames')
 
         if meas is not None:
-            _add_images_sheet(writer, meas, image_max_dim=image_max_dim)
+            _add_images_sheet(
+                writer,
+                meas,
+                widths=widths,
+                image_max_dim=image_max_dim,
+                colormap=colormap,
+                gamma=gamma,
+            )
 
     return out
 
@@ -169,7 +199,133 @@ def _png_bytes_from_image(image: np.ndarray) -> "BytesIO":
     return buf
 
 
-def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_dim: int) -> None:
+def _render_beam_overlay_image(
+    image: np.ndarray,
+    cx_px: float,
+    cy_px: float,
+    w_x_px: float,
+    w_y_px: float,
+    angle_deg: float = 0.0,
+    colormap: str = 'viridis',
+    gamma: float = 1.0,
+) -> "BytesIO":
+    """Render a beam profile image with overlay (ellipse + crosshair) as PNG bytes.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        2D grayscale image (normalized 0-1 or will be normalized)
+    cx_px, cy_px : float
+        Centroid position in pixels
+    w_x_px, w_y_px : float
+        Beam radii in pixels (1/e² radii)
+    angle_deg : float
+        Rotation angle for the ellipse
+    colormap : str
+        Matplotlib colormap name (default: 'viridis')
+    gamma : float
+        Gamma correction (default: 1.0)
+
+    Returns
+    -------
+    BytesIO
+        PNG image bytes ready for embedding in Excel
+    """
+    from io import BytesIO
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Ellipse
+    from matplotlib.transforms import Affine2D
+
+    # Normalize image to 0-1 range
+    img = np.asarray(image, dtype=float)
+    if img.size == 0:
+        # Return empty image
+        buf = BytesIO()
+        return buf
+
+    vmin = float(np.min(img))
+    vmax = float(np.max(img))
+    if vmax > vmin:
+        img = (img - vmin) / (vmax - vmin)
+    else:
+        img = np.zeros_like(img)
+
+    # Apply gamma correction
+    if gamma != 1.0 and gamma > 0:
+        img = np.power(img, 1.0 / gamma)
+
+    # Create figure with no margins
+    h, w = img.shape[:2]
+    dpi = 100
+    fig_w = w / dpi
+    fig_h = h / dpi
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+    ax.set_position([0, 0, 1, 1])
+
+    # Show image with colormap
+    ax.imshow(img, cmap=colormap, aspect='equal', origin='upper')
+    ax.set_xlim(-0.5, w - 0.5)
+    ax.set_ylim(h - 0.5, -0.5)  # Invert y-axis to match image coordinates
+    ax.axis('off')
+
+    # Draw ellipse (red, 2px width)
+    ellipse = Ellipse(
+        (cx_px, cy_px),
+        width=2 * w_x_px,
+        height=2 * w_y_px,
+        angle=angle_deg,
+        fill=False,
+        edgecolor='red',
+        linewidth=2,
+    )
+    ax.add_patch(ellipse)
+
+    # Draw crosshair (green)
+    ch_size = max(w_x_px, w_y_px, 20)
+    ax.plot([cx_px - ch_size, cx_px + ch_size], [cy_px, cy_px],
+            color='lime', linewidth=1)
+    ax.plot([cx_px, cx_px], [cy_px - ch_size, cy_px + ch_size],
+            color='lime', linewidth=1)
+
+    # Save to bytes
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=dpi, pad_inches=0,
+                bbox_inches='tight', facecolor='black')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def _add_images_sheet(
+    writer: pd.ExcelWriter,
+    meas: M2Measurement,
+    *,
+    widths: Optional[List["FrameWidths"]] = None,
+    image_max_dim: int = 256,
+    colormap: str = 'viridis',
+    gamma: float = 1.0,
+) -> None:
+    """Add images sheet with beam profile overlays.
+
+    Parameters
+    ----------
+    writer : pd.ExcelWriter
+        Excel writer with openpyxl engine
+    meas : M2Measurement
+        Measurement data containing frame info
+    widths : List[FrameWidths], optional
+        Frame widths for overlay rendering. If provided, images will include
+        ellipse and crosshair overlays showing beam measurements.
+    image_max_dim : int
+        Maximum dimension for preview images
+    colormap : str
+        Matplotlib colormap for image rendering
+    gamma : float
+        Gamma correction for display
+    """
     from openpyxl.drawing.image import Image as XlImage
 
     wb = writer.book
@@ -182,25 +338,65 @@ def _add_images_sheet(writer: pd.ExcelWriter, meas: M2Measurement, *, image_max_
     if not frames:
         sheet['A2'] = 'No frames'
         return
+
+    # Build lookup for widths by frame index
+    widths_by_index = {}
+    if widths:
+        for w in widths:
+            widths_by_index[w.index] = w
+
     row = 2
     for frame in frames:
         sheet[f'A{row}'] = frame.index
         sheet[f'B{row}'] = float(frame.z)
 
         try:
-            img = read_tiff_preview(meas.resolve_image_path(frame), max_dim=image_max_dim)
+            img, scale_x, scale_y = read_tiff_preview(
+                meas.resolve_image_path(frame),
+                max_dim=image_max_dim,
+                return_scale=True,
+            )
         except Exception:
             img = None
+            scale_x = scale_y = 1.0
 
         if img is not None:
+            # Normalize image
             norm = _normalize_image(img)
-            img_bytes = _png_bytes_from_image(norm)
+
+            # Check if we have width data for overlay
+            fw = widths_by_index.get(frame.index)
+            if fw is not None:
+                # Convert centroid to preview coordinates
+                cx_px = fw.cx * scale_x
+                cy_px = fw.cy * scale_y
+
+                # Convert radii from mm to pixels, then scale for preview
+                # facX/facY are mm per pixel
+                facX = frame.facX if frame.facX else 1.0
+                facY = frame.facY if frame.facY else 1.0
+                w_x_px = (fw.w_x / facX) * scale_x
+                w_y_px = (fw.w_y / facY) * scale_y
+
+                # Render with overlay
+                img_bytes = _render_beam_overlay_image(
+                    norm,
+                    cx_px, cy_px,
+                    w_x_px, w_y_px,
+                    angle_deg=0.0,  # Use camera XY for Excel export
+                    colormap=colormap,
+                    gamma=gamma,
+                )
+            else:
+                # Fallback to simple grayscale
+                img_bytes = _png_bytes_from_image(norm)
+
             xl_img = XlImage(img_bytes)
             xl_img.anchor = f'C{row}'
             sheet.add_image(xl_img)
 
-            sheet.row_dimensions[row].height = max(26, image_max_dim * 0.55)
-            sheet.column_dimensions['C'].width = max(16, image_max_dim * 0.09)
+            sheet.row_dimensions[row].height = max(26, image_max_dim * 0.75)
+            sheet.column_dimensions['C'].width = max(16, image_max_dim * 0.15)
 
         row += 1
 
